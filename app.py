@@ -1,6 +1,6 @@
 import os, re, shlex, subprocess, uuid, hmac
 from pathlib import Path
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -8,19 +8,26 @@ from pydantic import BaseModel, Field
 ROOT=Path(__file__).resolve().parent
 WORK=Path(os.getenv("SPIDER_WORKSPACE","./workspace")).resolve()
 TOKEN=os.getenv("SPIDER_API_TOKEN","")
-IMAGE=os.getenv("SPIDER_RUNNER_IMAGE","spider-shell-runner:1.0")
+IMAGE=os.getenv("SPIDER_RUNNER_IMAGE","spider-shell-runner:1.1")
 TIMEOUT=min(max(int(os.getenv("SPIDER_TIMEOUT_SECONDS","8")),1),15)
+MAX_UPLOAD=2*1024*1024
 if len(TOKEN)<24: raise RuntimeError("Set SPIDER_API_TOKEN (minimum 24 characters).")
 WORK.mkdir(parents=True,exist_ok=True)
-app=FastAPI(title="SPIDER SHELL",version="1.0.0")
+app=FastAPI(title="SPIDER SHELL",version="1.1.0")
 app.mount("/static",StaticFiles(directory=ROOT/"static"),name="static")
 ALLOW={"pwd","ls","echo","cat","mkdir","touch","python","python3","whoami","date"}
 NAME=re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
-class Request(BaseModel):
+class Command(BaseModel):
     command:str=Field(min_length=1,max_length=500)
 def auth(value):
     if not value or not hmac.compare_digest(value,"Bearer "+TOKEN):
         raise HTTPException(401,"Unauthorized")
+def safe_file(name):
+    if not NAME.fullmatch(name) or name in {".",".."}:
+        raise HTTPException(400,"Use a simple file name (letters, numbers, dot, dash, underscore).")
+    p=(WORK/name).resolve()
+    if p.parent!=WORK: raise HTTPException(400,"Invalid file path.")
+    return p
 def parse(raw):
     try: p=shlex.split(raw)
     except ValueError: raise HTTPException(400,"Invalid syntax")
@@ -30,16 +37,16 @@ def parse(raw):
     if len(p)>12: raise HTTPException(400,"Too many arguments")
     for a in p[1:]:
         if a.startswith("-") or "/" in a or "\\" in a or not NAME.fullmatch(a):
-            raise HTTPException(400,"Only simple workspace names are supported")
+            raise HTTPException(400,"Only simple workspace file names are supported")
     if p[0] in {"python","python3"} and (len(p)!=2 or not p[1].endswith(".py")):
         raise HTTPException(400,"Usage: python script.py")
     return p
 @app.get("/")
 def home(): return FileResponse(ROOT/"static/index.html")
 @app.get("/health")
-def health(): return {"status":"ok","name":"SPIDER SHELL"}
+def health(): return {"status":"ok","name":"SPIDER SHELL","version":"1.1.0"}
 @app.post("/api/run")
-def run(body:Request,authorization:str|None=Header(default=None)):
+def run(body:Command,authorization:str|None=Header(default=None)):
     auth(authorization); p=parse(body.command)
     if p==["help"]: return {"output":"Allowed: pwd ls echo cat mkdir touch python script.py whoami date","exit_code":0}
     args=["docker","run","--rm","--name","spider-"+uuid.uuid4().hex[:12],"--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges:true","--pids-limit","64","--memory","128m","--cpus","0.5","--user","10001:10001","--tmpfs","/tmp:rw,noexec,nosuid,size=16m","-v",f"{WORK}:/work:rw","-w","/work",IMAGE,*p]
@@ -49,3 +56,22 @@ def run(body:Request,authorization:str|None=Header(default=None)):
     except subprocess.TimeoutExpired: raise HTTPException(408,"Command timed out")
     except FileNotFoundError: raise HTTPException(503,"Docker unavailable")
     except Exception: raise HTTPException(500,"Runner failed")
+@app.get("/api/files")
+def files(authorization:str|None=Header(default=None)):
+    auth(authorization)
+    return {"files":[{"name":p.name,"size":p.stat().st_size} for p in sorted(WORK.iterdir()) if p.is_file() and not p.is_symlink()][:200]}
+@app.post("/api/upload")
+async def upload(file:UploadFile=File(...),authorization:str|None=Header(default=None)):
+    auth(authorization)
+    target=safe_file(Path(file.filename or "").name)
+    data=await file.read(MAX_UPLOAD+1)
+    if len(data)>MAX_UPLOAD: raise HTTPException(413,"Maximum upload size is 2 MB.")
+    if target.exists() and target.is_symlink(): raise HTTPException(400,"Symlinks are not accepted.")
+    target.write_bytes(data)
+    return {"uploaded":target.name,"size":len(data)}
+@app.get("/api/download/{name}")
+def download(name:str,authorization:str|None=Header(default=None)):
+    auth(authorization)
+    target=safe_file(name)
+    if not target.is_file() or target.is_symlink(): raise HTTPException(404,"File not found.")
+    return FileResponse(target,filename=target.name)
