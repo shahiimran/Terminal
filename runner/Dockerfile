@@ -3,4 +3,4 @@ RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin runner && mkd
 WORKDIR /work
 USER 10001:10001
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-ENTRYPOINT ["/usr/local/bin/python"]
+# No ENTRYPOINT: Docker command arguments select the allowlisted executable.
