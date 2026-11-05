@@ -1,28 +1,28 @@
-# SPIDER SHELL
+# SPIDER SHELL v2.0.0
 
-Termux-inspired browser cloud-shell prototype. Current code version: **1.1.0**.
+Browser-based, mobile-friendly development workspace.
 
-## v1.1 features
-- Mobile-friendly browser terminal UI.
-- Bearer-token protected API.
-- Upload and download files (2 MB per upload).
-- Workspace file listing.
-- Restricted command allowlist and Python script execution.
-- Each command runs in a disposable, network-disabled Docker container with read-only root, dropped capabilities, non-root user, CPU/memory/PID limits and timeout.
+## v2.0 features
+- Terminal interface.
+- Workspace file manager: list, upload (5 MB), download, edit, save and delete.
+- Run saved Python, Node.js and Bash scripts.
+- Restricted Git commands: status, log, diff, init.
+- Disposable Docker execution: no network, read-only root, dropped capabilities, non-root user, PID/memory/CPU limits and timeout.
+- Bearer-token API authentication.
 
-## Important deployment/security note
-This is a **single-user prototype**, not a public multi-user cloud shell. Do not expose it to the public internet yet. Before public launch, add per-user authentication and isolated workspaces, rate limits, storage quotas, audit logs, secure secret management, HTTPS, and stronger isolation (prefer rootless Docker or microVMs). Do not mount the Docker socket into an untrusted web container. A standard managed web host may not provide a Docker daemon for nested container execution; use a dedicated, hardened Linux VM/host for the runner or a separate isolated execution service.
+## Limitations and deployment security
+Single-user prototype, not public multi-user cloud shell and not full Termux. No arbitrary interactive shell, package installation, SSH, background jobs or multi-user isolation. Do not expose publicly until adding user accounts, isolated per-user storage/runners, quotas, rate limits, audit logs, HTTPS and a reviewed sandbox boundary (prefer microVMs/rootless containers). Never mount Docker socket into an untrusted app container.
 
-The current shell is intentionally restricted; it is not full Termux. Arbitrary Bash, APT, unrestricted PIP installation, SSH, and multi-user accounts are not enabled.
+Managed web hosting may not expose Docker for nested execution. Use a dedicated hardened Linux host or separate isolated runner service.
 
-## Local development
+## Local setup
 1. Install Python 3.11+ and Docker Engine.
-2. Build runner: `docker build -t spider-shell-runner:1.1 ./runner`
-3. Install dependencies: `pip install -r requirements.txt`
-4. Set a strong token: `export SPIDER_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"`
-5. Start API: `uvicorn app:app --host 127.0.0.1 --port 8000`
-6. Open `http://127.0.0.1:8000`.
+2. Build: docker build -t spider-shell-runner:2.0 ./runner
+3. Install: pip install -r requirements.txt
+4. Set SPIDER_API_TOKEN to a random secret of at least 24 characters.
+5. Start: uvicorn app:app --host 127.0.0.1 --port 8000
+6. Open http://127.0.0.1:8000
 
-Environment variables: `SPIDER_API_TOKEN` (required, 24+ chars), `SPIDER_WORKSPACE` (default ./workspace), `SPIDER_RUNNER_IMAGE` (default spider-shell-runner:1.1), `SPIDER_TIMEOUT_SECONDS` (1–15 seconds).
+Environment: SPIDER_API_TOKEN (required), SPIDER_WORKSPACE (default ./workspace), SPIDER_RUNNER_IMAGE (default spider-shell-runner:2.0), SPIDER_TIMEOUT_SECONDS (1–20).
 
 Never commit API tokens or private workspace files to GitHub.
